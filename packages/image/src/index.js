@@ -3,6 +3,9 @@ import { extname } from 'path';
 
 import { createFilter } from '@rollup/pluginutils';
 
+// The id of "virtual module", random number to reduce collision chances
+const encoderVirtualModuleName = "$image-plugin-encoder-virtual-id"  + Math.ceil(Math.random() * 100000);
+
 const defaults = {
   dom: false,
   exclude: null,
@@ -18,6 +21,10 @@ const mimeTypes = {
   '.webp': 'image/webp'
 };
 
+const escapeFunctionTemplate = `
+  export function e(data) { return encodeURIComponent(data); };
+`;
+
 const domTemplate = ({ format, mime, source }) => `
   const img = new Image();
   const source = ${format === 'base64' ? `'${source}'` : `btoa('${source}')`};
@@ -26,9 +33,9 @@ const domTemplate = ({ format, mime, source }) => `
 `;
 
 const constTemplate = ({ format, mime, source }) => `
-  const escape = (data) => new URLSearchParams(data).toString();
+  import {e} from "${encoderVirtualModuleName}";
   const source = '${source}';
-  const img = 'data:${mime};${format},' + ${format === 'base64' ? 'source' : 'escape(source)'};
+  const img = 'data:${mime};${format},' + ${format === 'base64' ? 'source' : 'e(source)'};
   export default img;
 `;
 
@@ -39,7 +46,21 @@ export default function image(opts = {}) {
   return {
     name: 'image',
 
+    resolveId(id) {
+      if (id === encoderVirtualModuleName) {
+        return encoderVirtualModuleName;
+      }
+
+      return null;
+    },
+
     load(id) {
+      // Check if it's virtual import. This import is used to reduce size of generated JS
+      // by sharing reference to encode function.
+      if (id === encoderVirtualModuleName) {
+        return escapeFunctionTemplate;
+      }
+
       if (!filter(id)) {
         return null;
       }
